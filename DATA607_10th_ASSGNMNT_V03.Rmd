@@ -1,0 +1,516 @@
+---
+title: "DATA607_10th_ASSGNMNT_V00"
+author: "KoohPy <- Koohyar Pooladvand"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  word_document: default
+  pdf_document:  default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Week 10th Assignment intro
+
+In this week's assignment we will be working with sentiment analyses.
+
+first, we will start by reading Text Mining with R, [Chapter 2 looks at
+Sentiment Analysis](https://www.tidytextmining.com/sentiment.html). The
+goal of this assignment is to start by getting the primary example code
+from chapter 2 and replicate it in R-Markdown.
+
+Then we extend the code in two ways:
+
+1.  Work with a different corpus of your choosing,
+
+2.  and Incorporate at least one additional sentiment lexicon (possibly
+    from another R package that you’ve found through research).
+
+At the end, an.Rmd file will be posted in your GitHub repository and to
+rpubs.com. \## Code Initiation
+
+Here I load the required libraries and ensure all the required packages
+are installed before running the following blocks of codes.
+
+```{r, Code_initialization, echo=FALSE, message=FALSE}
+required_packages <- c("RSQLite","devtools","tidyverse","DBI","dplyr","odbc","openintro","ggplot2","psych","reshape2","knitr","markdown","shiny","R.rsp","fivethirtyeight","RCurl", "stringr","readr","glue","data.table", "hflights", "jsonlite", "rjson", "XML", "xml2", "rvest", "readxl", "openxlsx", "httr2","kableExtra", "tinytex", "tidytext","textdata", "wordcloud", "gutenbergr", "corpora", "tm", "lexicon","syuzhet","RColorBrewer") # Specify packages
+
+not_installed <- required_packages[!(required_packages %in% installed.packages()[ , "Package"])]# Extract not installed packages
+if(length(not_installed)==0){
+  print("All required packages are installed")
+} else {
+  print(paste(length(not_installed), "package(s) had to be installed.")) # print the list of packages that need to be installed
+  install.packages(not_installed)
+}
+
+# define different paths to load the files 
+library(knitr)
+library(stringr)
+library(kableExtra)
+library(tinytex)
+library(textdata)
+library(tidytext)
+library(tidyr)
+library(ggplot2)
+library(wordcloud)
+library(gutenbergr)
+library(dplyr)
+library(stringr)
+library(tidyverse)
+library(reshape2)
+library(lexicon)
+library(syuzhet)
+library(RColorBrewer)
+library(tm)
+
+
+
+#surpass the error message for dplyr to not show the masking
+suppressPackageStartupMessages(library(dplyr))
+
+```
+
+## Chapter Two Code replication
+
+In this section, we replicate the codes in chapter 2 of the
+above-mentioned book. I have chosen Mark Twain's books and used Project
+Gutenberg to download his books. I have chosen his books that have only
+one title and among them, I have chosen his books that were stories.
+
+I have also entertained the idea of downloading of his famous and best
+books, but I had difficulty downloading all from Gutenburg and stopped
+after some time.
+
+```         
+In our analysis, we followed the sentiment analysis approach outlined in the textbook (Silge & Robinson, 2017).
+```
+
+```{r sentiment_analyses_chap2, echo=TRUE}
+
+get_sentiments("afinn")
+
+get_sentiments("bing")
+
+get_sentiments("nrc")
+
+library(janeaustenr)
+
+
+# Load Mark Twain books from Project Gutenberg
+mark_twain_books <- gutenberg_works(author == "Twain, Mark")
+
+# Make a new column named book and only keep the titles without ", Chapter", ", Part", or "-"
+mark_twain_books <- mark_twain_books %>%
+  mutate(book = gsub("[—:,].*", "", title))
+
+# Select only the books that have one title
+mark_twain_books_sel <- mark_twain_books %>%
+  count(book) %>%
+  filter(n == 1) %>%
+  inner_join(mark_twain_books, by = "book")
+
+# Choose 6 random samples of Mark Twain books to download, choosing from single title books
+set.seed(2014)
+
+MT_best_book_list <- c("The Innocents Abroad", 
+                       "Life on the Mississippi",
+                       "A Connecticut Yankee in King Arthur's Court",
+                       "The Prince and the Pauper",
+                       "Adventures of Huckleberry Finn",
+                       "The Adventures of Tom Sawyer")
+
+mark_twain_books_sel_6 <- mark_twain_books %>%
+  filter(grepl(paste(MT_best_book_list, collapse = "|"), title)) %>%
+  select(book, title, everything())
+
+
+MT_one_book_list <- c("A Horse's Tale", 
+                      "The Adventures of Huckleberry Finn \\(Tom Sawyer's Comrade\\)",
+                      "The Man That Corrupted Hadleyburg",
+                      "Tom Sawyer Abroad",
+                      "Tom Sawyer, Detective",
+                      "The American Claimant")
+
+mark_twain_books_sel_6 <- mark_twain_books %>%
+  filter(grepl(paste(MT_one_book_list, collapse = "|"), title)) %>%
+  select(book, title, everything())
+
+
+#mark_twain_books_sel_6 <- sample_n(mark_twain_books_sel, 6)
+
+
+mark_t_books_downloaded <- list() 
+DF_book <- tibble(book = character(0), title = character(0), text = character(0))
+
+# Run for each of the 6 selected books and download them
+for (i in seq_along(mark_twain_books_sel_6$gutenberg_id)) {
+  #get the ID and titl of the book 
+  book_id <- mark_twain_books_sel_6$gutenberg_id[i]
+  book_title <- mark_twain_books_sel_6$title[i]
+  #downlaod from gutenberg 
+  mark_t_books_downloaded[[i]] <- gutenberg_download(book_id)
+  
+  rep_size <- length(mark_t_books_downloaded[[i]]$text)
+  # Combine all text paragraphs into a single text
+  #book_text <- paste(mark_t_books_downloaded[[i]]$text, collapse = " ")
+  
+  DF_book <- rbind(DF_book, tibble(book = rep(book_id,rep_size), title = rep(book_title,rep_size), text = mark_t_books_downloaded[[i]]$text))
+}
+
+
+tidy_MT_book <- DF_book %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+#Get sentences 
+tidy_MT_book_sentence <- DF_book %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(sentence, text, token = "sentences") 
+
+
+
+#tidy_books <- austen_books() %>%
+#  group_by(book) %>%
+#  mutate(
+#    linenumber = row_number(),
+#    chapter = cumsum(str_detect(text, 
+#                                regex("^chapter [\\divxlc]", 
+#                                      ignore_case = TRUE)))) %>%
+#  ungroup() %>%
+#  unnest_tokens(word, text)
+
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+# chose a random book 
+random_book <- sample(unique(tidy_MT_book$title),1)
+
+tidy_MT_book %>%
+  filter(title == random_book) %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+mark_twain_sentiment <- tidy_MT_book %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(title, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+
+mark_twain_sentiment_2 <- tidy_MT_book %>%
+  group_by(title) %>%
+  inner_join(get_sentiments("nrc") %>% 
+               filter(sentiment %in% c("positive","negative")))%>%
+  mutate(method = "NRC")%>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+  
+
+
+ggplot(mark_twain_sentiment, aes(index, sentiment, fill = title)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~title, ncol = 2, scales = "free_x")
+
+
+#use nrc_get sentiment to evalate all books
+MT_sentiment_scores <- tidy_MT_book %>%
+  group_by(title) %>%
+  summarize(words = toString(word)) %>%
+  ungroup() %>%
+  mutate(sentiment = get_nrc_sentiment(words, language = "english"))
+
+# Flatten the nested data
+flattened_data <- MT_sentiment_scores %>%
+  unnest(cols = sentiment)
+
+
+barplot(
+  colSums(prop.table(flattened_data[, 3:12])),
+  space = 0.2,
+  horiz = FALSE,
+  las = 1,
+  cex.names = 0.7,
+  col = brewer.pal(n = 8, name = "Set3"),
+  main = "A few Mark Twain's Books",
+  sub = "Analysis by KP",
+  xlab="emotions", ylab = NULL)
+
+
+# First, let's reshape the data into a long format
+flattened_data_long <- flattened_data %>%
+  pivot_longer(cols = 3:12, names_to = "sentiment", values_to = "score")
+
+# Now, create the plot
+ggplot(flattened_data_long, aes(x = title, y = score, fill = title)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ sentiment, scales = "free_y", ncol = 2) +
+  labs(x = "Title", y = "Sentiment Score") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+## 2.3 Comparing the three sentiment dictionaries
+
+This part copied code from this
+[book](https://www.tidytextmining.com/sentiment.html). The code has been
+replicated and modified as needed.
+
+```{r comparing_sentiment, echo = TRUE}
+
+
+Huckleberry_Finn <- tidy_MT_book %>% 
+  filter(title == "The Adventures of Huckleberry Finn (Tom Sawyer's Comrade)")
+
+
+afinn <- Huckleberry_Finn %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+
+bing_and_nrc <- bind_rows(
+  Huckleberry_Finn %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  Huckleberry_Finn %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")+
+  labs(title ="The Adventures of Huckleberry Finn (Tom Sawyer's Comrade)") + 
+  xlab("Sentiment over pages")
+
+#get_sentiments("nrc") %>% 
+#  filter(sentiment %in% c("positive", "negative")) %>% 
+#  count(sentiment)
+
+#get_sentiments("bing") %>% 
+#  count(sentiment)
+
+```
+
+## 2.4 Most common positive and negative words
+
+The code is mostly copied over from the
+[tidytextmining](https://www.tidytextmining.com/sentiment.html) and the
+sentiment analyses. Changes have been implemented to analyze some of
+Mark Twain's body of works.
+
+```{r comm_pos_neg, echo=TRUE}
+
+bing_word_counts <- tidy_MT_book %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup() 
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribution to sentiment",
+       y = NULL)
+
+bing_word_counts %>%
+  filter(n > 80) %>%
+  mutate(n = ifelse(sentiment == "negative", -n, n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col() +
+  coord_flip() +
+  labs(y = "Contribution to sentiment")
+
+
+custom_stop_words <- bind_rows(tibble(word = c("miss"),  
+                                      lexicon = c("custom")), 
+                               stop_words)
+
+```
+
+## 2.5 Wordclouds
+
+The code is mostly copied over from the
+[tidytextmining](https://www.tidytextmining.com/sentiment.html) and the
+sentiment analyses. Changes have been implemented to analyze some of
+Mark Twain's body of works.
+
+```{r wordclouds, echo=TRUE}
+
+
+library(wordcloud)
+
+tidy_MT_book %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+
+tidy_MT_book %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("#F8766D", "#00BFC4"),
+                   max.words = 100)
+
+
+```
+
+## 2.6 Looking at units beyond just words
+
+The code is mostly copied over from the
+[tidytextmining](https://www.tidytextmining.com/sentiment.html) and the
+sentiment analyses. Changes have been implemented to analyze some of
+Mark Twain's body of works.
+
+```{r and_beyond, echo=TRUE}
+
+p_and_p_sentences <- tibble(text = prideprejudice) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+
+MT_chapters <- DF_book %>%
+  group_by(title) %>%
+  unnest_tokens(chapter, text, token = "regex", 
+                pattern = "Chapter|CHAPTER [\\dIVXLC]") %>%
+  ungroup()
+
+MT_chapters %>% 
+  group_by(title) %>% 
+  summarise(chapters = n())
+
+
+bingnegative <- get_sentiments("bing") %>% 
+  filter(sentiment == "negative")
+
+wordcounts <- tidy_MT_book %>%
+  group_by(title, chapter) %>%
+  summarize(words = n())
+
+tidy_MT_book %>%
+  semi_join(bingnegative) %>%
+  group_by(title, chapter) %>%
+  summarize(negativewords = n()) %>%
+  left_join(wordcounts, by = c("title", "chapter")) %>%
+  mutate(ratio = negativewords/words) %>%
+  filter(chapter != 0) %>%
+  slice_max(ratio, n = 1) %>% 
+  ungroup()
+
+```
+
+## Analyzing Emotion in one Mark Twain's Book
+
+In this section, we use the emotion listed in "NRC" to learn more about
+the emotion changes in the books.
+
+This section I have used code from
+[proraminghistogram](https://programminghistorian.org/en/lessons/sentiment-analysis-syuzhet).
+
+```{r Syuzhet, echo=TRUE}
+
+
+Huckleberry_Finn <- tidy_MT_book %>% 
+  filter(title == "The Adventures of Huckleberry Finn (Tom Sawyer's Comrade)")
+
+text_words <- get_tokens(Huckleberry_Finn$word)
+
+sentiment_scores_sum <- get_nrc_sentiment(toString(text_words), language = "english")
+
+sentiment_scores <- get_nrc_sentiment(text_words, language = "english")
+
+
+barplot(
+  colSums(prop.table(sentiment_scores[, 1:8])),
+  space = 0.2,
+  horiz = FALSE,
+  las = 1,
+  cex.names = 0.7,
+  col = brewer.pal(n = 8, name = "Set3"),
+  main = "The Adventures of Huckleberry Finn (Tom Sawyer's Comrade)",
+  sub = "Analysis by KP",
+  xlab="emotions", ylab = NULL)
+
+
+sad_words <- text_words[sentiment_scores$sadness> 0]
+
+sad_word_order <- sort(table(unlist(sad_words)), decreasing = TRUE)
+head(sad_word_order, n = 12)
+
+
+cloud_emotions_data <- c(
+  paste(text_words[sentiment_scores$sadness> 0], collapse = " "),
+  paste(text_words[sentiment_scores$joy > 0], collapse = " "),
+  paste(text_words[sentiment_scores$anger > 0], collapse = " "),
+  paste(text_words[sentiment_scores$fear > 0], collapse = " "))
+
+cloud_corpus <- Corpus(VectorSource(cloud_emotions_data))
+
+cloud_tdm <- TermDocumentMatrix(cloud_corpus)
+cloud_tdm <- as.matrix(cloud_tdm)
+head(cloud_tdm)
+
+colnames(cloud_tdm) <- c('sadness', 'happiness', 'anger', 'joy')
+head(cloud_tdm)
+
+set.seed(2014) # this can be set to any integer
+comparison.cloud(cloud_tdm, random.order = FALSE,
+                 colors = c("green", "red", "orange", "blue"),
+                 title.size = 1.0, max.words = 60, scale = c(2.5, 0.8), rot.per =0.3)
+
+
+sentiment_valence <- (sentiment_scores$negative *-1) + sentiment_scores$positive
+
+simple_plot(sentiment_valence)
+
+
+
+```
+
+## Citation:
+
+Reference:
+
+Silge, J., & Robinson, D. (2017). Text Mining with R: A Tidy Approach.
+O'Reilly Media. Retrieved from
+<https://www.tidytextmining.com/sentiment.html>
+
+[Programming Historian: Sentiment Analysis with
+Syuzhet](https://programminghistorian.org/en/lessons/sentiment-analysis-syuzhet)
